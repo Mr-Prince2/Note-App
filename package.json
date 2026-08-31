@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "homepage": " https://mr-prince2.github.io/Note-App/",
+  "homepage": "https://mr-prince2.github.io/Note-App/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
