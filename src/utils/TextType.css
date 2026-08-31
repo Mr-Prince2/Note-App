@@ -1,29 +1,29 @@
 .text-type {
-  display: inline-block; /* keeps it inline but reserves space */
-  white-space: nowrap;   /* prevent wrapping so width matters */
+  display: inline-flex;
+  align-items: center;
   vertical-align: middle;
+  position: relative;
+  max-width: 100%;
 }
 
-/* make the content an inline-block so the fixed width applies */
 .text-type__content {
   display: inline-block;
   white-space: nowrap;
-  overflow: hidden; /* hide the "not-yet-typed" characters (prevents flicker) */
-  text-overflow: clip;
-  /* Optional: set min-height to avoid vertical jumps when fonts change */
-  min-height: 1em;
-
-  font-weight: bolder;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .text-type__cursor {
-  margin-left: 0.25rem;
+  margin-left: 2px;
   display: inline-block;
   opacity: 1;
+  font-weight: 400;
+  color: var(--accent, #38bdf8);
 }
 
 .text-type__cursor--hidden {
   display: none;
 }
-
-.text-type { position: absolute; left: 1rem; top: 1rem; }

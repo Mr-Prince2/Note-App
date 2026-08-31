@@ -1,44 +1,58 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import Sidebar from "./components/Sidebar";
 import Editor from "./components/Editor";
 import Preview from "./components/Preview";
+import ConfirmModal from "./components/ConfirmModal";
 import { loadNotes, saveNotes } from "./utils/storage";
-
-import TextType from './utils/TextType';
-
-
 
 export default function App() {
   const [notes, setNotes] = useState(() => loadNotes());
   const [activeId, setActiveId] = useState(() => (notes[0]?.id ?? null));
   const [query, setQuery] = useState("");
   const [showPreview, setShowPreview] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
 
-  // keep notes saved to localStorage (debounced-ish using effect)
+  const saveTimeoutRef = useRef(null);
+
+  // Debounced autosave to LocalStorage
   useEffect(() => {
-    saveNotes(notes);
+    setIsSaving(true);
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
+    saveTimeoutRef.current = setTimeout(() => {
+      saveNotes(notes);
+      setIsSaving(false);
+    }, 300);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
   }, [notes]);
 
-  // ensure activeId valid when notes change
+  // Ensure activeId is valid when notes change
   useEffect(() => {
-    if (!activeId && notes.length) setActiveId(notes[0].id);
-    if (activeId && !notes.some(n => n.id === activeId)) {
+    if (!activeId && notes.length) {
+      setActiveId(notes[0].id);
+    } else if (activeId && !notes.some(n => n.id === activeId)) {
       setActiveId(notes[0]?.id ?? null);
     }
   }, [notes, activeId]);
 
+  // Filter notes based on query
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return notes.slice().sort((a,b)=>b.updatedAt-a.updatedAt);
+    if (!q) return notes.slice().sort((a, b) => b.updatedAt - a.updatedAt);
     return notes
       .filter(n => (n.title + " " + n.content).toLowerCase().includes(q))
-      .sort((a,b)=>b.updatedAt-a.updatedAt);
+      .sort((a, b) => b.updatedAt - a.updatedAt);
   }, [notes, query]);
 
   const activeNote = notes.find(n => n.id === activeId) ?? null;
 
-  // create a new note
+  // Create a new note
   const addNote = useCallback(() => {
     const newNote = {
       id: uuidv4(),
@@ -49,42 +63,51 @@ export default function App() {
     };
     setNotes(prev => [newNote, ...prev]);
     setActiveId(newNote.id);
+    setQuery("");
   }, []);
 
-  // update note in notes array
+  // Update note in notes state
   const updateNote = useCallback((updated) => {
     setNotes(prev => {
       const idx = prev.findIndex(n => n.id === updated.id);
       if (idx === -1) return [updated, ...prev];
       const copy = prev.slice();
       copy[idx] = updated;
-      // move updated note to top
       copy.splice(idx, 1);
       return [updated, ...copy];
     });
   }, []);
 
-  const deleteNote = useCallback((id) => {
-    if (!confirm("Delete this note?")) return;
-    setNotes(prev => prev.filter(n => n.id !== id));
+  // Request note deletion confirmation
+  const handleDeleteRequest = useCallback((id) => {
+    setDeleteTargetId(id);
   }, []);
 
+  // Execute deletion after modal confirmation
+  const confirmDelete = useCallback(() => {
+    if (!deleteTargetId) return;
+    setNotes(prev => prev.filter(n => n.id !== deleteTargetId));
+    setDeleteTargetId(null);
+  }, [deleteTargetId]);
+
+  // Export note as Markdown
   const exportNote = useCallback((note) => {
-    const blob = new Blob([`# ${note.title}\n\n${note.content}`], { type: "text/markdown" });
+    const safeTitle = (note.title || "note").trim().replace(/[^a-z0-9_\-\s]/gi, "_");
+    const blob = new Blob([`# ${note.title || "Untitled Note"}\n\n${note.content}`], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = (note.title || "note") + ".md";
+    a.download = `${safeTitle}.md`;
     a.click();
     URL.revokeObjectURL(url);
   }, []);
 
+  // Import text/markdown file content
   const importContent = useCallback((text) => {
-    // Put imported text into the active note (or create one)
     if (!activeNote) {
       const n = {
         id: uuidv4(),
-        title: "",
+        title: "Imported Note",
         content: text,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -96,14 +119,13 @@ export default function App() {
     }
   }, [activeNote, updateNote]);
 
-  // keyboard shortcuts: Ctrl/Cmd+S to save (no-op because autosave), Ctrl/Cmd+N to add
+  // Keyboard shortcuts (Ctrl/Cmd+S, Ctrl/Cmd+N)
   useEffect(() => {
     const handler = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
-        // maybe flash saved state
-        // not required — localStorage autosaves
-        console.info("Saved");
+        saveNotes(notes);
+        setIsSaving(false);
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
         e.preventDefault();
@@ -112,26 +134,28 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [addNote]);
+  }, [addNote, notes]);
 
   return (
     <div className="app-shell">
-      
-      <TextType 
-        text={["Welcome to Note App!", "Create and manage your notes with ease."," Enjoy writing!"," Stay organized!"]}
-        typingSpeed={75}
-        pauseDuration={1500}
-        showCursor={true}
-        cursorCharacter="|"
-      />
+      {/* Mobile Drawer Overlay */}
+      {isMobileSidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
 
       <Sidebar
         notes={filtered}
         activeId={activeId}
         onAdd={addNote}
         onSelect={setActiveId}
-        onDelete={deleteNote}
+        onDelete={handleDeleteRequest}
         onSearch={setQuery}
+        searchQuery={query}
+        isOpenMobile={isMobileSidebarOpen}
+        onCloseMobile={() => setIsMobileSidebarOpen(false)}
       />
 
       <div className="main-area">
@@ -141,9 +165,21 @@ export default function App() {
           onExport={exportNote}
           onImport={importContent}
           onTogglePreview={() => setShowPreview(s => !s)}
+          showPreview={showPreview}
+          onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)}
+          isSaving={isSaving}
         />
         {showPreview && <Preview content={activeNote?.content || ""} />}
       </div>
+
+      {/* Glassmorphism Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Delete Note"
+        message="Are you sure you want to delete this note? This action cannot be undone."
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }
